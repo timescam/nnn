@@ -5,8 +5,9 @@
 # Note: This plugin needs a "NNN_FIFO" to work. See man.
 #
 # Dependencies:
-#   - Supports 5 independent methods to preview with:
+#   - Supports 6 independent methods to preview with:
 #       - tmux (>=3.0), or
+#       - WezTerm, or
 #       - kitty with allow_remote_control and listen_on set in kitty.conf, or
 #       - QuickLook on WSL (https://github.com/QL-Win/QuickLook), or
 #       - Windows Terminal (https://github.com/Microsoft/Terminal | https://aka.ms/terminal) with WSL, or
@@ -20,7 +21,7 @@
 #   - man
 #   - optional: bsdtar or atool for additional archive preview
 #   - optional: bat for code syntax highlighting
-#   - optional: ueberzug, kitty terminal, viu or catimg for images
+#   - optional: ueberzug, WezTerm, kitty terminal, viu or catimg for images
 #   - optional: convert(ImageMagick) for playing gif preview
 #   - optional: ffmpegthumbnailer for video thumbnails (https://github.com/dirkvdb/ffmpegthumbnailer)
 #   - optional: ffmpeg for audio thumbnails
@@ -59,9 +60,11 @@
 #   will try to use a kitty terminal split. And as a final fallback, a
 #   different terminal window will be used ($TERMINAL).
 #
-#   Tmux and kitty users can configure $SPLIT to either "h" or "v" to set a
+#   Tmux, WezTerm and kitty users can configure $SPLIT to either "h" or "v" to set a
 #   'h'orizontal split or a 'v'ertical split (as in, the line that splits the
 #   windows will be horizontal or vertical).
+#
+#   WezTerm is able to show images without extra dependencies.
 #
 #   Kitty users need `allow_remote_control` set to `yes`, and `listen_on` set
 #   to e.g. "unix:$TMPDIR/kitty". To customize the window split, `enabled_layouts`
@@ -101,6 +104,8 @@ start_preview() {
 
     if [ -e "${TMUX%%,*}" ] && tmux -V | grep -q '[ -][3456789]\.'; then
         TERMINAL=tmux
+    elif [ -z "$TERMINAL" ] && [ "$TERM_PROGRAM" = "WezTerm" ]; then
+        TERMINAL=wezterm
     elif [ -n "$KITTY_LISTEN_ON" ]; then
         TERMINAL=kitty
     elif [ -z "$TERMINAL" ] && [ "$TERM_PROGRAM" = "iTerm.app" ]; then
@@ -127,6 +132,17 @@ start_preview() {
                 -e "USE_SCOPE=$USE_SCOPE" -e "SPLIT=$SPLIT" -e "USE_PISTOL=$USE_PISTOL" \
                 -e "NNN_PREVIEWDIR=$NNN_PREVIEWDIR" -e "NNN_PREVIEWHEIGHT=$NNN_PREVIEWHEIGHT" \
                 -e "FIFO_UEBERZUG=$FIFO_UEBERZUG" -e "QLPATH=$2" -d"$DSPLIT" "$0" "$1" ;;
+        wezterm)
+            command="$SHELL -c 'cd $PWD; \
+                PATH=\\\"$PATH\\\" NNN_FIFO=\\\"$NNN_FIFO\\\" PREVIEW_MODE=1 PAGER=\\\"$PAGER\\\" \
+                USE_SCOPE=\\\"$USE_SCOPE\\\" SPLIT=\\\"$SPLIT\\\" TERMINAL=\\\"$TERMINAL\\\" \
+                PREVIEWPID=\\\"$PREVIEWPID\\\" CURSEL=\\\"$CURSEL\\\" TMPDIR=\\\"$TMPDIR\\\" \
+                ICONLOOKUP=\\\"$ICONLOOKUP\\\" NNN_PREVIEWHEIGHT=\\\"$NNN_PREVIEWHEIGHT\\\" \
+                NNN_PREVIEWWIDTH=\\\"$NNN_PREVIEWWIDTH\\\" NNN_PREVIEWDIR=\\\"$NNN_PREVIEWDIR\\\" \
+                USE_PISTOL=\\\"$USE_PISTOL\\\" BAT_STYLE=\\\"$BAT_STYLE\\\" TTY=\\\"$TTY\\\" \
+                BAT_THEME=\\\"$BAT_THEME\\\" FIFOPID=\\\"$FIFOPID\\\" \\\"$0\\\" \\\"$1\\\"'"
+            if [ "$SPLIT" = "h" ]; then split="horizontal"; else split=""; fi
+            wezterm cli split-pane $split "$command" ;;
         kitty) # Setting the layout for the new window. It will be restored after the script ends.
             kitty @ goto-layout splits
             # Trying to use kitty's integrated window management as the split window. All
@@ -397,7 +413,9 @@ generate_preview() {
 
 image_preview() {
     clear
-    if [ "$TERMINAL" = "kitty" ]; then
+    if [ -z "$TERMINAL" ] && [ "$TERM_PROGRAM" = "WezTerm" ]; then
+        wezterm immgcat --width "$1" --height "$2" "$3"
+    elif [ "$TERMINAL" = "kitty" ]; then
         # Kitty terminal users can use the native image preview method
         kitty +kitten icat --silent --place "$1"x"$2"@0x0 --transfer-mode=stream --stdin=no "$3" &
     elif exists ueberzug; then
